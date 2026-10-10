@@ -33,7 +33,7 @@ export function createSession(song, mode = 'wait', bpm = song.bpm) {
       } else {
         time+=dt;
         if(hit && !released)held+=dt;
-        while(index<events.length && time>=events[index].start+events[index].duration+.2){const ok=hit && held>=events[index].duration-.18;advance(ok);message=ok?'Good hold!':'Missed or too short. Keep going.';}
+        while(index<events.length && time>=events[index].start+events[index].duration+.08){const ok=hit && held>=events[index].duration-.18;advance(ok);message=ok?'Good hold!':'Missed or too short. Keep going.';}
       }
     },
     down(note) {
@@ -52,7 +52,10 @@ export function createSession(song, mode = 'wait', bpm = song.bpm) {
       if(mode==='wait') {
         if(held>=e.duration-.08){time=e.start+e.duration;advance(true);message='Good hold! Follow the next bar.';}
         else{hit=false;held=0;time=e.start;e.status='pending';mistakes++;streak=0;message='Released too soon. Try again and hold to the tail.';}
-      } else {message=held>=e.duration-.18?'Good hold!':'Released too soon. Keep following the song.';}
+      } else {
+        if(held>=e.duration-.18 && time>=e.start+e.duration-.08){advance(true);message='Good hold!';}
+        else message='Released too soon. Keep following the song.';
+      }
     },
     get state(){return {time,index,correct,missed,best,mistakes,held,hit,released,expected:events[index],complete:index===events.length,message,accuracy:correct+missed+mistakes ? Math.round(correct/(correct+missed+mistakes)*100):null};}
   };

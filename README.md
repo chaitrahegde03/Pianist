@@ -14,6 +14,8 @@ Choose a song, select **Wait mode** or **Flow mode**, choose a tempo, and press 
 - **Wait mode** freezes at the note onset until the correct key is pressed. It moves while you hold, then waits for release. Releasing early resets that note for a retry.
 - **Flow mode** keeps moving at the selected tempo, even if you miss a note. Notes must start within 200 ms of the line and be held for their duration (180 ms tolerance). Short or missed notes reduce accuracy.
 - Use your digital piano, hold an on-screen key with a mouse/touch, or hold computer keys **A S D F G H J K**. Audio from on-screen and computer keys is sustained until release.
+- **Focus view** expands the piano roll and hides the songbook and page chrome. Press Escape to exit.
+- Notes move with the animation clock; feedback updates separately to keep the lane stable. Short-hold retries rewind gently, with that transition disabled for reduced-motion preferences.
 - Pause preserves your position. Releasing an unfinished note during pause can require a retry. Switching tabs or losing window focus pauses practice and releases active keys.
 
 Connect your piano before clicking **Connect piano** and grant browser MIDI permission. MIDI requires HTTPS or localhost. MIDI note-off and zero-velocity note-on release keys. Your physical piano supplies its own sound. Sustain pedal messages are not currently interpreted.
