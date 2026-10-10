@@ -23,6 +23,10 @@ export function createSession(song, mode = 'wait', bpm = song.bpm) {
   function advance(ok) { events[index].status = ok ? 'correct' : 'missed'; if(ok){correct++;best=Math.max(best,++streak);}else{missed++;streak=0;} index++;hit=false;held=0;released=false; }
   return {
     events,
+    cue() {
+      if(index===events.length)return;
+      time=events[index].start;hit=false;held=0;released=false;events[index].status='pending';
+    },
     update(dt) {
       if(index===events.length)return;
       const e=events[index];
@@ -53,6 +57,7 @@ export function createSession(song, mode = 'wait', bpm = song.bpm) {
         if(held>=e.duration-.08){time=e.start+e.duration;advance(true);message='Good hold! Follow the next bar.';}
         else{hit=false;held=0;time=e.start;e.status='pending';mistakes++;streak=0;message='Released too soon. Try again and hold to the tail.';}
       } else {
+        e.status='released';
         if(held>=e.duration-.18 && time>=e.start+e.duration-.08){advance(true);message='Good hold!';}
         else message='Released too soon. Keep following the song.';
       }

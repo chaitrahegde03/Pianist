@@ -1,7 +1,7 @@
 import {songs, noteName, createSession} from './music.js';
 const $ = id => document.getElementById(id);
 const white=[60,62,64,65,67,69,71,72], letters=['A','S','D','F','G','H','J','K'];
-let selected=0, mode='wait', session, running=false, last=0, midi, audio;
+let selected=0, mode='flow', session, running=false, last=0, midi, audio;
 let bars=[], rollHeight=380, lastUI=0, renderedTime=0, retryFrom=0, retryAt=0;
 const reducedMotion=matchMedia('(prefers-reduced-motion: reduce)');
 function text(id,value){const el=$(id), next=String(value);if(el.textContent!==next)el.textContent=next;}
@@ -27,12 +27,12 @@ function render(){
   $('progress').style.transform=`scaleX(${s.index/session.events.length})`;
   text('correct',s.correct);text('accuracy',s.accuracy===null?'—':`${s.accuracy}%`);text('streak',s.best);
   text('next-note',s.complete?'Complete ✓':`${noteName(s.expected.note)} · ${Math.max(0,s.expected.duration-s.held).toFixed(1)}s`);
-  text('feedback',s.complete?`${s.correct} correct holds · ${s.missed} missed notes`:!running?'Press Start practice when you’re ready.':s.message);
+  text('feedback',s.complete?`${s.correct} correct holds · ${s.missed} missed notes · Play ${noteName(songs[selected].notes[0])} to repeat.`:!running?`Play ${noteName(s.expected.note)} to ${s.index?'continue':'begin'}.`:s.message);
   $('complete-overlay').hidden=!s.complete;
-  text('transport',s.complete?'Play again':running?'Pause':'Start practice');
-  text('roll-status',s.complete?'Complete ✓':!running?'Ready when you are':s.time<session.events[0].start?`Get ready · ${Math.ceil(session.events[0].start-s.time)}`:mode==='wait'&&s.time>=s.expected.start?(s.hit?'Hold → release':'Waiting for your key'):'Follow the bars ↓');
+  $('transport').hidden=!running;
+  text('roll-status',s.complete?'Complete ✓':!running?`Play ${noteName(s.expected.note)} to begin`:s.time<session.events[0].start?`Get ready · ${Math.ceil(session.events[0].start-s.time)}`:mode==='wait'&&s.time>=s.expected.start?(s.hit?'Hold → release':'Waiting for your key'):'Follow the bars ↓');
   $('piano-scene').classList.toggle('is-holding',running && s.hit && !s.released);
-  for(const [note,b] of keys)b.classList.toggle('target',$('guide').checked && running && !s.complete && s.time>=s.expected.start-.2 && note===s.expected.note);
+  for(const [note,b] of keys)b.classList.toggle('target',$('guide').checked && !s.complete && s.time>=s.expected.start-.2 && note===s.expected.note);
   for(let i=0;i<bars.length;i++){
     const e=session.events[i], name=`falling-note ${e.status} ${i===s.index?'active-note':''}`;
     if(bars[i].className!==name)bars[i].className=name;
@@ -40,10 +40,10 @@ function render(){
 }
 
 function reset(){
-  running=false; releaseAll();retryAt=0;renderedTime=0;session=createSession(songs[selected],mode,Number($('tempo').value));
+  running=false; releaseAll();retryAt=0;renderedTime=0;session=createSession(songs[selected],mode,Number($('tempo').value));session.cue();renderedTime=session.state.time;
   $('song-title').textContent=songs[selected].title;
   $('song-description').textContent='Longer bars mean longer holds. Play at the line; release at the tail.';
-  $('notes').replaceChildren(...session.events.map(e=>{const el=document.createElement('div');el.textContent=noteName(e.note);el.className='falling-note';el.style.left=`${(white.indexOf(e.note)+.12)/8*100}%`;el.style.width=`${.76/8*100}%`;el.style.height=`${e.duration*100}px`;return el;}));
+  $('notes').replaceChildren(...session.events.map(e=>{const el=document.createElement('div');el.innerHTML=`<span>${noteName(e.note)}</span>`;el.className='falling-note';el.style.left=`${(white.indexOf(e.note)+.2)/8*100}%`;el.style.width=`${.6/8*100}%`;el.style.height=`${e.duration*100}px`;return el;}));
   [...$('songs').children].forEach((b,i)=>{b.classList.toggle('selected',i===selected);b.setAttribute('aria-pressed',i===selected);});bars=[...$('notes').children];rollHeight=$('notes').clientHeight;motion(performance.now());render();
 }
 function startSound(note){try{
@@ -57,17 +57,31 @@ function startSound(note){try{
 }catch{}}
 function stopSound(note){const v=voices.get(note);if(!v)return;v.gain.gain.cancelAndHoldAtTime(audio.currentTime);v.gain.gain.setTargetAtTime(.0001,audio.currentTime,.045);v.osc.stop(audio.currentTime+.3);v.osc.onended=()=>{v.osc.disconnect();v.gain.disconnect();v.filter.disconnect();};voices.delete(note);}
 
-function down(note,source,sound=false){sync();let sources=active.get(note);if(sources?.has(source))return;if(!sources){sources=new Set();active.set(note,sources);if(sound)startSound(note);if(running)session.down(note);}sources.add(source);keys.get(note)?.classList.add('pressed');render();}
+function down(note,source,sound=false){
+  sync();
+  if(session.state.complete && note===songs[selected].notes[0])reset();
+  let sources=active.get(note);if(sources?.has(source))return;
+  if(!sources){
+    sources=new Set();active.set(note,sources);if(sound)startSound(note);
+    if(!running && note===session.state.expected?.note){
+      session.cue();retryAt=0;renderedTime=session.state.time;running=true;last=performance.now();
+    }
+    if(running)session.down(note);
+  }
+  sources.add(source);keys.get(note)?.classList.add('pressed');motion(performance.now());render();
+}
+
 function up(note,source){sync();const sources=active.get(note);if(!sources || !sources.delete(source))return;if(sources.size)return;active.delete(note);keys.get(note)?.classList.remove('pressed');stopSound(note);if(running)session.up(note);render();}
 function releaseAll(){for(const [note,sources] of [...active])for(const source of [...sources])up(note,source);}
 function setMode(value){mode=value;$('wait-mode').setAttribute('aria-pressed',mode==='wait');$('flow-mode').setAttribute('aria-pressed',mode==='flow');$('mode-badge').textContent=`${mode.toUpperCase()} MODE`;$('mode-help').textContent=mode==='wait'?'Wait mode pauses for the correct key. Hold to the end of the bar, then release.':'Flow mode keeps the tempo. Missed notes pass by — keep playing.';reset();}
 for(const [i,song] of songs.entries()){const b=document.createElement('button');b.className='song';b.innerHTML=`<span class="song-icon">${song.icon}</span><span><b>${song.title}</b><small>${song.subtitle}</small></span><span>↗</span>`;b.onclick=()=>{selected=i;reset();};$('songs').append(b);}
-for(let note=60;note<=72;note++){const b=document.createElement('button'),isWhite=white.includes(note);b.className=`key ${isWhite?'white':'black'}`;b.setAttribute('aria-label',`Play ${noteName(note)}`);b.innerHTML=`<span>${noteName(note)}${isWhite?`<small>${letters[white.indexOf(note)]}</small>`:''}</span>`;if(!isWhite)b.style.left=`${white.filter(n=>n<note).length/8*100}%`;b.onpointerdown=e=>{e.preventDefault();b.focus();b.setPointerCapture(e.pointerId);down(note,`pointer-${e.pointerId}`,true);};b.onpointerup=b.onpointercancel=b.onlostpointercapture=e=>up(note,`pointer-${e.pointerId}`);b.onkeydown=e=>{if(['Enter',' '].includes(e.key)){e.preventDefault();down(note,'button',true);}};b.onkeyup=e=>{if(['Enter',' '].includes(e.key)){e.preventDefault();up(note,'button');}};keys.set(note,b);$('keyboard').append(b);}
+for(let note=60;note<=72;note++){const b=document.createElement('button'),isWhite=white.includes(note);b.className=`key ${isWhite?'white':'black'}`;b.dataset.note=note;b.setAttribute('aria-label',`Play ${noteName(note)}`);b.innerHTML=`<span>${noteName(note)}${isWhite?`<small>${letters[white.indexOf(note)]}</small>`:''}</span>`;if(!isWhite)b.style.left=`${white.filter(n=>n<note).length/8*100}%`;b.onpointerdown=e=>{e.preventDefault();b.focus();b.setPointerCapture(e.pointerId);down(note,`pointer-${e.pointerId}`,true);};b.onpointermove=e=>{if(!b.hasPointerCapture(e.pointerId))return;const source=`pointer-${e.pointerId}`,target=document.elementFromPoint(e.clientX,e.clientY)?.closest('.key');const next=target?Number(target.dataset.note):undefined;for(const [held,sources]of [...active])if(sources.has(source)&&held!==next)up(held,source);if(next!==undefined)down(next,source,true);};b.onpointerup=b.onpointercancel=b.onlostpointercapture=e=>{const source=`pointer-${e.pointerId}`;for(const [held]of [...active])up(held,source);};b.onkeydown=e=>{if(['Enter',' '].includes(e.key)){e.preventDefault();down(note,'button',true);}};b.onkeyup=e=>{if(['Enter',' '].includes(e.key)){e.preventDefault();up(note,'button');}};keys.set(note,b);$('keyboard').append(b);}
 document.addEventListener('keydown',e=>{if(e.repeat||e.ctrlKey||e.metaKey||e.altKey||['INPUT','SELECT','TEXTAREA'].includes(e.target.tagName))return;const i=letters.indexOf(e.key.toUpperCase());if(i!==-1){e.preventDefault();down(white[i],'computer',true);}});
 document.addEventListener('keyup',e=>{const i=letters.indexOf(e.key.toUpperCase());if(i!==-1)up(white[i],'computer');});
-window.addEventListener('blur',()=>{releaseAll();running=false;render();});
-document.addEventListener('visibilitychange',()=>{if(document.hidden){releaseAll();running=false;render();}});
-$('transport').onclick=()=>{if(session.state.complete)reset();if(running){releaseAll();running=false;}else{releaseAll();running=true;last=performance.now();}render();};
+function pause(){releaseAll();running=false;session.cue();retryAt=0;renderedTime=session.state.time;motion(performance.now());render();}
+window.addEventListener('blur',pause);
+document.addEventListener('visibilitychange',()=>{if(document.hidden)pause();});
+$('transport').onclick=pause;
 $('focus').onclick=()=>{const focused=document.body.classList.toggle('focus-practice');$('focus').setAttribute('aria-pressed',focused);text('focus',focused?'Exit focus':'Focus view');rollHeight=$('notes').clientHeight;motion(performance.now());};
 document.addEventListener('keydown',e=>{if(e.key==='Escape' && document.body.classList.contains('focus-practice'))$('focus').click();});
 $('restart').onclick=reset;$('tempo').onchange=reset;$('guide').onchange=render;$('wait-mode').onclick=()=>setMode('wait');$('flow-mode').onclick=()=>setMode('flow');
@@ -80,4 +94,4 @@ function frame(now){
   last=now;requestAnimationFrame(frame);
 }
 new ResizeObserver(()=>{rollHeight=$('notes').clientHeight;motion(performance.now());}).observe($('notes'));
-reset();requestAnimationFrame(frame);
+setMode('flow');requestAnimationFrame(frame);
