@@ -1,18 +1,20 @@
+// Reference tempos are choices for these arrangements, not universal tempos for every performance.
 const twinkleA = [60,60,67,67,69,69,67,65,65,64,64,62,62,60];
 const twinkleB = [67,67,65,65,64,64,62,67,67,65,65,64,64,62];
 const twinkleRhythm = [1,1,1,1,1,1,2,1,1,1,1,1,1,2];
 export const songs = [
-  {title:'Twinkle, Twinkle', subtitle:'Complete melody · 12 bars', icon:'✦', bpm:90,
+  {id:'twinkle',title:'Twinkle, Twinkle', subtitle:'Complete melody · 12 bars', icon:'✦', bpm:112,
     notes:[...twinkleA,...twinkleB,...twinkleA], beats:[...twinkleRhythm,...twinkleRhythm,...twinkleRhythm]},
-  {title:'Ode to Joy', subtitle:'Beethoven’s theme · 8 bars', icon:'♫', bpm:90,
+  {id:'ode-to-joy',title:'Ode to Joy', subtitle:'Beethoven’s theme · 8 bars', icon:'♫', bpm:108,
     notes:[64,64,65,67,67,65,64,62,60,60,62,64,64,62,62,64,64,65,67,67,65,64,62,60,60,62,64,62,60,60],
     beats:[1,1,1,1,1,1,1,1,1,1,1,1,1.5,.5,2,1,1,1,1,1,1,1,1,1,1,1,1,1.5,.5,2]},
-  {title:'Mary Had a Little Lamb', subtitle:'Complete melody · 8 bars', icon:'☀', bpm:90,
+  {id:'mary',title:'Mary Had a Little Lamb', subtitle:'Complete melody · 8 bars', icon:'☀', bpm:120,
     notes:[64,62,60,62,64,64,64,62,62,62,64,67,67,64,62,60,62,64,64,64,64,62,62,64,62,60],
     beats:[1,1,1,1,1,1,2,1,1,2,1,1,2,1,1,1,1,1,1,1,1,1,1,1,1,4]}
 ];
 export function noteName(note) { return ['C','C♯','D','D♯','E','F','F♯','G','G♯','A','A♯','B'][note % 12] + (Math.floor(note / 12) - 1); }
 export function createSession(song, mode = 'flow', bpm = song.bpm) {
+  if(!Number.isFinite(bpm)||bpm<=0)throw new Error('BPM must be positive');
   const beat = 60 / bpm, window = Math.min(.2, beat * .35);
   let cursor = 1.5;
   const events = song.notes.map((note, i) => {
