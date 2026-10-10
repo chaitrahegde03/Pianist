@@ -11,3 +11,49 @@ export function createPractice(notes) {
     get state() { return { index, attempts, best, expected: notes[index], accuracy: attempts ? Math.round(index / attempts * 100) : null }; }
   };
 }
+
+// Beginner arrangements: beat lengths describe the sounding duration of each note.
+const rhythms = [[1,1,1,1,1,1,2,1,1,1,1,1,1,2], [1,1,1,1,1,1,1,1,1,1,1,1,1.5,.5,2], [1,1,1,1,1,1,2,1,1,2,1,1,2]];
+songs.forEach((song, i) => { song.beats = rhythms[i]; song.bpm = 90; });
+export function createSession(song, mode = 'wait', bpm = song.bpm) {
+  const beat = 60 / bpm;
+  let cursor = 1.5;
+  const events = song.notes.map((note, i) => { const e = {note, start:cursor, duration:song.beats[i]*beat, status:'pending'}; cursor += e.duration + beat * .18; return e; });
+  let time = 0, index = 0, hit = false, held = 0, released = false, correct = 0, missed = 0, streak = 0, best = 0, mistakes = 0, message = 'Follow the bars. Hold until the tail reaches the line.';
+  function advance(ok) { events[index].status = ok ? 'correct' : 'missed'; if(ok){correct++;best=Math.max(best,++streak);}else{missed++;streak=0;} index++;hit=false;held=0;released=false; }
+  return {
+    events,
+    update(dt) {
+      if(index===events.length)return;
+      const e=events[index];
+      if(mode==='wait') {
+        if(time<e.start)time=Math.min(e.start,time+dt);
+        else if(hit && !released){time=Math.min(e.start+e.duration,time+dt);held=time-e.start;message=time>=e.start+e.duration?'Release the key.':'Hold the key…';}
+        else if(!hit)message=`Play ${noteName(e.note)} and hold.`;
+      } else {
+        time+=dt;
+        if(hit && !released)held+=dt;
+        while(index<events.length && time>=events[index].start+events[index].duration+.2){const ok=hit && held>=events[index].duration-.18;advance(ok);message=ok?'Good hold!':'Missed or too short. Keep going.';}
+      }
+    },
+    down(note) {
+      if(index===events.length)return;
+      const e=events[index];
+      if(note!==e.note){mistakes++;streak=0;message=`Try ${noteName(e.note)}.`;return;}
+      if(hit)return;
+      if(mode==='wait' && time<e.start-.001){message='Wait for the bar to reach the line.';return;}
+      if(mode==='flow' && Math.abs(time-e.start)>.2){message='Follow the timing at the line.';return;}
+      hit=true;released=false;held=0;e.status='holding';message='Hold the key…';
+    },
+    up(note) {
+      if(index===events.length || note!==events[index].note || !hit || released)return;
+      released=true;
+      const e=events[index];
+      if(mode==='wait') {
+        if(held>=e.duration-.08){time=e.start+e.duration;advance(true);message='Good hold! Follow the next bar.';}
+        else{hit=false;held=0;time=e.start;e.status='pending';mistakes++;streak=0;message='Released too soon. Try again and hold to the tail.';}
+      } else {message=held>=e.duration-.18?'Good hold!':'Released too soon. Keep following the song.';}
+    },
+    get state(){return {time,index,correct,missed,best,mistakes,held,hit,released,expected:events[index],complete:index===events.length,message,accuracy:correct+missed+mistakes ? Math.round(correct/(correct+missed+mistakes)*100):null};}
+  };
+}

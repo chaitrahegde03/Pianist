@@ -1,60 +1,49 @@
-import {songs, noteName, createPractice} from './music.js';
+import {songs, noteName, createSession} from './music.js';
 const $ = id => document.getElementById(id);
-let selected = 0, practice, midi, audio, travelStart = 0, arrived = false;
-const travelDuration = matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 750;
-const white = [60,62,64,65,67,69,71,72], letters = ["A","S","D","F","G","H","J","K"];
-const keyButtons = new Map();
-function render() {
-  const s = practice.state, song = songs[selected];
-  $('count').textContent = `${s.index} / ${song.notes.length} notes`;
-  $('progress').style.width = `${s.index / song.notes.length * 100}%`;
-  $('correct').textContent = s.index; $('accuracy').textContent = s.accuracy === null ? '—' : `${s.accuracy}%`; $('streak').textContent = s.best;
-  $('next-note').textContent = s.expected === undefined ? 'Beautifully done! ✦' : `Next: ${noteName(s.expected)}`;
-  $('complete-overlay').hidden = s.expected !== undefined;
-  for (const [note, button] of keyButtons) button.classList.toggle('target', $('guide').checked && arrived && note === s.expected);
-}
-function buildRoll() {
-  $('notes').replaceChildren(...songs[selected].notes.slice(practice.state.index, practice.state.index + 6).map((note, offset) => {
-    const el = document.createElement('div'); el.className = 'falling-note' + (offset === 0 ? ' active-note' : '');
-    el.textContent = noteName(note); el.dataset.offset = offset;
-    const keyIndex = white.indexOf(note);
-    el.style.left = `${(keyIndex + .12) / 8 * 100}%`;
-    el.style.width = `${.76 / 8 * 100}%`;
-    return el;
-  }));
-}
-function beginTravel() {
-  arrived = false; travelStart = performance.now(); buildRoll();
-  $('roll-status').textContent = 'Follow the notes ↓';
-}
-function animateRoll(now) {
-  if (practice.state.expected !== undefined) {
-    const fraction = travelDuration ? Math.min(1, (now - travelStart) / travelDuration) : 1;
-    const floor = $('notes').clientHeight - 46;
-    for (const el of $('notes').children) {
-      el.style.transform = `translateY(${floor - (1 - fraction) * 100 - Number(el.dataset.offset) * 74}px)`;
-    }
-    if (fraction === 1 && !arrived) {
-      arrived = true; $('roll-status').textContent = 'Waiting for your note';
-      $('feedback').textContent = `Play ${noteName(practice.state.expected)}. The song will wait for you.`;
-      $('notes').classList.add('waiting'); render();
-    }
+const white=[60,62,64,65,67,69,71,72], letters=['A','S','D','F','G','H','J','K'];
+let selected=0, mode='wait', session, running=false, last=0, midi, audio;
+const keys=new Map(), active=new Map(), voices=new Map();
+function render(){
+  const s=session.state;
+  $('count').textContent=`${s.index} / ${session.events.length} notes`;
+  $('progress').style.width=`${s.index/session.events.length*100}%`;
+  $('correct').textContent=s.correct; $('accuracy').textContent=s.accuracy===null?'—':`${s.accuracy}%`; $('streak').textContent=s.best;
+  $('next-note').textContent=s.complete?'Complete ✓':`${noteName(s.expected.note)} · ${Math.max(0,s.expected.duration-s.held).toFixed(1)}s`;
+  $('feedback').textContent=s.complete?`${s.correct} correct holds · ${s.missed} missed notes` : !running?'Press Start practice when you’re ready.':s.message;
+  $('complete-overlay').hidden=!s.complete;
+  $('transport').textContent=s.complete?'Play again':running?'Pause':'Start practice';
+  $('roll-status').textContent=s.complete?'Complete ✓':!running?'Ready when you are':mode==='wait'&&s.time>=s.expected.start?(s.hit?'Hold → release':'Waiting for your key'):'Follow the bars ↓';
+  for(const [note,b] of keys)b.classList.toggle('target',$('guide').checked && running && !s.complete && s.time>=s.expected.start-.2 && note===s.expected.note);
+  const floor=$('notes').clientHeight, speed=100;
+  for(const [i,el] of [...$('notes').children].entries()){
+    const e=session.events[i], bottom=floor+(s.time-e.start)*speed;
+    el.style.height=`${e.duration*speed}px`;
+    el.style.transform=`translateY(${bottom-e.duration*speed}px)`;
+    el.className=`falling-note ${e.status} ${i===s.index?'active-note':''}`;
   }
-  requestAnimationFrame(animateRoll);
-
 }
-function selectSong(i) { selected = i; practice = createPractice(songs[i].notes); $('song-title').textContent = songs[i].title; $('song-description').textContent = songs[i].description; $('feedback').textContent = 'Follow the note down to the play line.'; $('notes').classList.remove('waiting'); beginTravel(); [...$('songs').children].forEach((b,j) => { b.classList.toggle('selected',i===j); b.setAttribute('aria-pressed',i===j); }); render(); }
-function play(note, sound = false) {
-  if (sound) { try { audio ??= new AudioContext(); audio.resume(); const osc = audio.createOscillator(), gain = audio.createGain(); osc.type = 'triangle'; osc.frequency.value = 440 * 2 ** ((note-69)/12); gain.gain.setValueAtTime(.18,audio.currentTime); gain.gain.exponentialRampToValueAtTime(.001,audio.currentTime+.65); osc.connect(gain); gain.connect(audio.destination); osc.start(); osc.stop(audio.currentTime+.65); } catch {} }
-  const button = keyButtons.get(note); if (button) { button.classList.add('pressed'); setTimeout(()=>button.classList.remove('pressed'),180); }
-  if (!arrived || practice.state.expected === undefined) return;
-  const result = practice.play(note); $('feedback').textContent = result === 'wrong' ? `You played ${noteName(note)}. Try ${noteName(practice.state.expected)}.` : result === 'complete' ? 'Song complete! Pick another melody or play again.' : 'Nice! Follow the next note.'; if(result !== 'wrong') { $('notes').classList.remove('waiting'); beginTravel(); } if(result === 'complete') $('roll-status').textContent = 'Complete ✓'; render();
+function reset(){
+  running=false; releaseAll(); session=createSession(songs[selected],mode,Number($('tempo').value));
+  $('song-title').textContent=songs[selected].title;
+  $('song-description').textContent='Longer bars mean longer holds. Play at the line; release at the tail.';
+  $('notes').replaceChildren(...session.events.map(e=>{const el=document.createElement('div');el.textContent=noteName(e.note);el.className='falling-note';el.style.left=`${(white.indexOf(e.note)+.12)/8*100}%`;el.style.width=`${.76/8*100}%`;return el;}));
+  [...$('songs').children].forEach((b,i)=>{b.classList.toggle('selected',i===selected);b.setAttribute('aria-pressed',i===selected);}); render();
 }
-songs.forEach((song,i) => { const b = document.createElement('button'); b.className='song'; b.innerHTML = `<span class="song-icon">${song.icon}</span><span><b>${song.title}</b><small>${song.subtitle}</small></span><span>↗</span>`; b.onclick = () => selectSong(i); $('songs').append(b); });
-for (let note=60; note<=72; note++) { const b = document.createElement('button'); const isWhite = white.includes(note); b.className = isWhite ? 'key white' : 'key black'; b.setAttribute('aria-label', `Play ${noteName(note)}`); b.innerHTML = `<span>${noteName(note)}${isWhite ? `<small>${letters[white.indexOf(note)]}</small>` : ''}</span>`; if (!isWhite) b.style.left = `${white.filter(n=>n<note).length / 8 * 100}%`; b.onpointerdown = e => { e.preventDefault(); b.focus(); play(note,true); }; b.onclick = e => { if(e.detail===0) play(note,true); }; keyButtons.set(note,b); $('keyboard').append(b); }
-document.addEventListener('keydown',e => { if(e.repeat || e.ctrlKey || e.metaKey || e.altKey || ['INPUT','SELECT','TEXTAREA'].includes(e.target.tagName))return; const i=letters.indexOf(e.key.toUpperCase()); if(i!==-1) { e.preventDefault(); play(white[i],true); } });
-$('restart').onclick = () => selectSong(selected); $('guide').onchange=render;
-function bindDevices() { let names=[]; for(const input of midi.inputs.values()) { input.onmidimessage = ({data}) => { if((data[0]&0xf0)===0x90 && data[2]>0)play(data[1]); }; if(input.state==='connected')names.push(input.name || 'MIDI piano'); } $('connection').textContent = names.length ? `● Connected · ${names.join(', ')}` : '● No MIDI piano found. Check your cable; on-screen practice is available.'; $('connect').textContent = names.length ? '✓ Piano connected' : 'Check MIDI devices ↗'; }
-$('connect').onclick=async()=> { if(!navigator.requestMIDIAccess) { $('connection').textContent='Web MIDI requires Chrome or Edge and HTTPS (or localhost). You can practice on screen.'; return; } try { midi ??= await navigator.requestMIDIAccess({sysex:false}); midi.onstatechange=bindDevices; bindDevices(); } catch { $('connection').textContent='MIDI access was denied or unavailable. Allow MIDI in browser site settings, then try again.'; } };
-selectSong(0);
-requestAnimationFrame(animateRoll);
+function startSound(note){try{audio??=new AudioContext();audio.resume();const osc=audio.createOscillator(), gain=audio.createGain();osc.type='triangle';osc.frequency.value=440*2**((note-69)/12);gain.gain.setValueAtTime(.001,audio.currentTime);gain.gain.linearRampToValueAtTime(.13,audio.currentTime+.02);osc.connect(gain);gain.connect(audio.destination);osc.start();voices.set(note,{osc,gain});}catch{}}
+function stopSound(note){const v=voices.get(note);if(!v)return;v.gain.gain.cancelScheduledValues(audio.currentTime);v.gain.gain.setTargetAtTime(.001,audio.currentTime,.025);v.osc.stop(audio.currentTime+.15);voices.delete(note);}
+function down(note,source,sound=false){let sources=active.get(note);if(sources?.has(source))return;if(!sources){sources=new Set();active.set(note,sources);if(sound)startSound(note);if(running)session.down(note);}sources.add(source);keys.get(note)?.classList.add('pressed');render();}
+function up(note,source){const sources=active.get(note);if(!sources || !sources.delete(source))return;if(sources.size)return;active.delete(note);keys.get(note)?.classList.remove('pressed');stopSound(note);if(running)session.up(note);render();}
+function releaseAll(){for(const [note,sources] of [...active])for(const source of [...sources])up(note,source);}
+function setMode(value){mode=value;$('wait-mode').setAttribute('aria-pressed',mode==='wait');$('flow-mode').setAttribute('aria-pressed',mode==='flow');$('mode-badge').textContent=`${mode.toUpperCase()} MODE`;$('mode-help').textContent=mode==='wait'?'Wait mode pauses for the correct key. Hold to the end of the bar, then release.':'Flow mode keeps the tempo. Missed notes pass by — keep playing.';reset();}
+for(const [i,song] of songs.entries()){const b=document.createElement('button');b.className='song';b.innerHTML=`<span class="song-icon">${song.icon}</span><span><b>${song.title}</b><small>${song.subtitle}</small></span><span>↗</span>`;b.onclick=()=>{selected=i;reset();};$('songs').append(b);}
+for(let note=60;note<=72;note++){const b=document.createElement('button'),isWhite=white.includes(note);b.className=`key ${isWhite?'white':'black'}`;b.setAttribute('aria-label',`Play ${noteName(note)}`);b.innerHTML=`<span>${noteName(note)}${isWhite?`<small>${letters[white.indexOf(note)]}</small>`:''}</span>`;if(!isWhite)b.style.left=`${white.filter(n=>n<note).length/8*100}%`;b.onpointerdown=e=>{e.preventDefault();b.focus();b.setPointerCapture(e.pointerId);down(note,`pointer-${e.pointerId}`,true);};b.onpointerup=b.onpointercancel=b.onlostpointercapture=e=>up(note,`pointer-${e.pointerId}`);b.onkeydown=e=>{if(['Enter',' '].includes(e.key)){e.preventDefault();down(note,'button',true);}};b.onkeyup=e=>{if(['Enter',' '].includes(e.key)){e.preventDefault();up(note,'button');}};keys.set(note,b);$('keyboard').append(b);}
+document.addEventListener('keydown',e=>{if(e.repeat||e.ctrlKey||e.metaKey||e.altKey||['INPUT','SELECT','TEXTAREA'].includes(e.target.tagName))return;const i=letters.indexOf(e.key.toUpperCase());if(i!==-1){e.preventDefault();down(white[i],'computer',true);}});
+document.addEventListener('keyup',e=>{const i=letters.indexOf(e.key.toUpperCase());if(i!==-1)up(white[i],'computer');});
+window.addEventListener('blur',()=>{releaseAll();running=false;render();});
+document.addEventListener('visibilitychange',()=>{if(document.hidden){releaseAll();running=false;render();}});
+$('transport').onclick=()=>{if(session.state.complete)reset();if(running){releaseAll();running=false;}else{releaseAll();running=true;last=performance.now();}render();};
+$('restart').onclick=reset;$('tempo').onchange=reset;$('guide').onchange=render;$('wait-mode').onclick=()=>setMode('wait');$('flow-mode').onclick=()=>setMode('flow');
+function bindDevices(){const names=[];for(const input of midi.inputs.values()){const source=`midi-${input.id}`;input.onmidimessage=({data})=>{const type=data[0]&0xf0;if(type===0x90&&data[2]>0)down(data[1],source);else if(type===0x80||(type===0x90&&data[2]===0))up(data[1],source);};if(input.state==='connected')names.push(input.name||'MIDI piano');else for(const [note]of active)up(note,source);} $('connection').textContent=names.length?`● Connected · ${names.join(', ')}`:'No MIDI piano found. Check your cable.';$('connect').textContent=names.length?'✓ Piano connected':'Check MIDI devices';}
+$('connect').onclick=async()=>{if(!navigator.requestMIDIAccess){$('connection').textContent='Use Chrome or Edge on HTTPS or localhost for MIDI.';return;}try{midi??=await navigator.requestMIDIAccess({sysex:false});midi.onstatechange=bindDevices;bindDevices();}catch{$('connection').textContent='MIDI access unavailable. Allow MIDI in browser settings and retry.';}};
+function frame(now){if(running){session.update((now-last)/1000);if(session.state.complete){running=false;releaseAll();}render();}last=now;requestAnimationFrame(frame);}
+reset();requestAnimationFrame(frame);

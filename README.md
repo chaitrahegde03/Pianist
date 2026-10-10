@@ -1,11 +1,21 @@
 # Pianist
 
-A beginner piano practice app for Chrome and Edge. Connect a USB MIDI piano, choose a guided melody, and receive immediate note feedback. An on-screen keyboard and computer keys A–K let you practice without hardware.
+Piano learning app for Chrome and Edge, with USB MIDI input, falling-note guidance, and three beginner melodies.
 
-## Development
+## Run locally
 
-Run `npm start` from this directory, then open `http://localhost:3000` in Chrome or Edge. Python 3 is required for the static development server. No package installation is needed. Run `npm test` to test the lesson engine (Node.js 18 or newer).
+From this folder, run `python3 -m http.server 3000` (Windows: `py -m http.server 3000`), then open `http://localhost:3000`. Alternatively, `npm start` runs the same server. No dependency installation is required. Run `npm test` with Node.js 18+ to test the lesson engines.
 
-MIDI requires HTTPS or localhost and browser permission. Connect your piano before clicking **Connect piano**. Standard MIDI note-on messages advance the lesson; note-off and zero-velocity messages are ignored. MIDI supplies note data, so your physical piano provides sound. On-screen keys use synthesized audio.
+## Practice
 
-Falling notes align with the piano keys and pause at the play line until the correct note is played. Upcoming notes preview the next steps. Input during the short descent is ignored, and wrong notes do not advance the song. Reduced-motion preferences skip the descent animation. This guided wait mode checks note order without enforcing rhythm. It includes three melodies, session accuracy, and best streak. Progress resets when selecting a song or restarting; it is not persisted. Hardware MIDI should be tested on a computer with a connected instrument.
+Choose a song, select **Wait mode** or **Flow mode**, choose a tempo, and press **Start practice**. Changing the song, mode, or tempo resets the session.
+
+- Each bar's length represents the note's sounding duration. Play when its bottom reaches the line and hold until its top (tail) reaches the line. A two-beat note is twice as long as a one-beat note.
+- **Wait mode** freezes at the note onset until the correct key is pressed. It moves while you hold, then waits for release. Releasing early resets that note for a retry.
+- **Flow mode** keeps moving at the selected tempo, even if you miss a note. Notes must start within 200 ms of the line and be held for their duration (180 ms tolerance). Short or missed notes reduce accuracy.
+- Use your digital piano, hold an on-screen key with a mouse/touch, or hold computer keys **A S D F G H J K**. Audio from on-screen and computer keys is sustained until release.
+- Pause preserves your position. Releasing an unfinished note during pause can require a retry. Switching tabs or losing window focus pauses practice and releases active keys.
+
+Connect your piano before clicking **Connect piano** and grant browser MIDI permission. MIDI requires HTTPS or localhost. MIDI note-off and zero-velocity note-on release keys. Your physical piano supplies its own sound. Sustain pedal messages are not currently interpreted.
+
+The included melodies use simple beginner rhythm arrangements with small articulation gaps; this is not a full sheet-music score. Session progress is not persisted. Accuracy counts successful holds against missed notes and incorrect/short attempts, not a comprehensive musical performance score. Physical MIDI hardware still needs testing with your instrument.
