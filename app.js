@@ -47,7 +47,7 @@ function motion(now){
     b.classList.toggle('matched',isHeld);
     b.querySelector('.hold-meter').style.transform=`scaleX(${e?Math.min(1,Math.max(0,(s.time-e.start)/e.duration)):0})`;
     b.classList.toggle('pressed',active.has(note)||demoNotes.has(note));
-    b.classList.toggle('target',$('guide').checked&&!s.complete&&s.time>=s.expected.start-.2&&s.expected.note===note);
+    b.classList.toggle('target',$('guide').checked&&session.canPlay(note));
   }
   $('piano-scene').classList.toggle('is-holding',s.holding.length>0||demoNotes.size>0);
 }

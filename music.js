@@ -27,11 +27,22 @@ export function createSession(song, mode = 'flow', bpm = song.bpm) {
   const heldNotes=new Map();
   const index=()=>{const i=events.findIndex(e=>e.result===null);return i===-1?events.length:i;};
   const coverage=e=>e.hitAt===null?0:Math.max(0,Math.min(e.releaseAt ?? time,e.start+e.duration)-Math.max(e.hitAt,e.start));
-  const sufficient=e=>coverage(e)>=e.duration-Math.min(.12,e.duration*.2)-1e-8;
+  // Judge the attack and release separately against the visible bar. An accepted
+  // late attack must still be able to succeed by holding through its tail.
+  const onsetWindow=e=>Math.min(window,e.duration*.25);
+  const sufficient=e=>e.hitAt!==null && (e.releaseAt ?? time)>=e.start+e.duration-Math.min(.12,e.duration*.2)-1e-8;
+  function candidate(note){
+    const expected=events[index()];
+    if(!expected || heldNotes.has(note))return;
+    if(mode==='wait')return note===expected.note && expected.hitAt===null && time>=expected.start-onsetWindow(expected)-1e-8 ? expected : undefined;
+    return events.filter(e=>e.note===note && e.result===null && e.hitAt===null && Math.abs(time-e.start)<=onsetWindow(e)+1e-8)
+      .sort((a,b)=>Math.abs(time-a.start)-Math.abs(time-b.start))[0];
+  }
   function notify(note,label,kind){feedback={note,label,kind,at:time};message=label;}
   function settle(e,ok){if(e.result!==null)return;e.result=ok?'correct':'missed';e.status=e.result;}
   return {
     events, beat,
+    canPlay(note){return !!candidate(note);},
     cue(){
       const i=index();if(i===events.length)return;
       time=events[i].start;heldNotes.clear();
@@ -45,17 +56,14 @@ export function createSession(song, mode = 'flow', bpm = song.bpm) {
         for(const e of events)if(e.result===null && time>=e.start+e.duration+window){const ok=sufficient(e);settle(e,ok);if(!ok)notify(e.note,e.hitAt===null?'Missed':'Too short','miss');}
       }else{
         const e=events[i];
-        if(time<e.start)time=Math.min(e.start,time+dt);
-        else if(heldNotes.get(e.note)===e){time=Math.min(e.start+e.duration,time+dt);message=time>=e.start+e.duration?'Release':'Hold';}
+        if(heldNotes.get(e.note)===e){time=Math.min(e.start+e.duration,time+Math.max(0,dt));message=time>=e.start+e.duration?'Release':'Hold';}
+        else if(time<e.start)time=Math.min(e.start,time+Math.max(0,dt));
         else message=`Play ${noteName(e.note)}`;
       }
     },
     down(note){
       if(index()===events.length || heldNotes.has(note))return;
-      const expected=events[index()];
-      const e=mode==='wait'
-        ? note===expected.note && time>=expected.start-.001 ? expected : undefined
-        : events.filter(e=>e.note===note && e.result===null && e.hitAt===null && Math.abs(time-e.start)<=window).sort((a,b)=>Math.abs(time-a.start)-Math.abs(time-b.start))[0];
+      const e=candidate(note);
       if(!e){mistakes++;notify(note,events.some(e=>e.note===note && e.result===null)?'Off beat':'Wrong key','miss');return;}
       e.hitAt=time;e.releaseAt=null;e.status='holding';heldNotes.set(note,e);
       const offset=time-e.start;notify(note,mode==='wait' || Math.abs(offset)<.07?'On time':offset<0?'Early':'Late','hit');
