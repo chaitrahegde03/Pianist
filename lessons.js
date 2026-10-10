@@ -1,0 +1,27 @@
+import {songs} from './music.js';
+export const lessons=[
+  {id:'middle-c',title:'Meet middle C',subtitle:'Find your starting point',duration:'3 min',mode:'wait',bpm:60,
+    goal:'Find C4 on your piano and play it confidently.',
+    steps:['Find a group of two black keys near the center of your piano. C is the white key immediately to their left.', 'Look for C4 on screen. MIDI feedback helps you find the matching octave on your piano.', 'Use your right thumb. Play each C, hold until the bar ends, then release.'],
+    practice:{title:'Meet middle C',notes:[60,60,60,60],beats:[1,1,2,2],bpm:60}},
+  {id:'five-notes',title:'Your first five notes',subtitle:'A comfortable right-hand position',duration:'5 min',mode:'wait',bpm:60,
+    goal:'Move between C, D, E, F, and G without losing your place.',
+    steps:['Place your right thumb on C4, index on D4, middle on E4, ring on F4, and little finger on G4.', 'Keep your hand relaxed and your fingers gently curved. Let each key come back up after playing.', 'Follow the notes up and back down. The app checks notes and holds; finger choice is your guide.'],
+    practice:{title:'Your first five notes',notes:[60,62,64,65,67,65,64,62,60],beats:[1,1,1,1,2,1,1,1,2],bpm:60}},
+  {id:'hold-release',title:'Give each note its time',subtitle:'Short notes, long notes',duration:'4 min',mode:'wait',bpm:60,
+    goal:'Hold different note lengths and release at the right moment.',
+    steps:['Longer bars mean longer holds. Their bottom reaches the keys when it is time to play.', 'Watch the meter on your pressed key. Release when the top of the bar reaches the keys.', 'Try one, two, and four beats. In Wait mode, an early release lets you try the same note again.'],
+    practice:{title:'Give each note its time',notes:[60,60,62,62,64,64],beats:[1,2,1,2,1,4],bpm:60}},
+  {id:'steady-beat',title:'Find a steady beat',subtitle:'Keep the music moving',duration:'5 min',mode:'flow',bpm:60,
+    goal:'Play a short pattern at 60 BPM without stopping.',
+    steps:['At 60 BPM, each beat is one second. Count “one, two, three, four” evenly.', 'Play the first highlighted note to start. Flow mode keeps moving, even when you miss a note.', 'Keep following the bars instead of going back. Aim for at least 80% correct holds to finish this lesson.'],
+    practice:{title:'Find a steady beat',notes:[60,62,64,62,60,62,64,60],beats:[1,1,1,1,1,1,1,1],bpm:60}},
+  {id:'first-melody',title:'Play your first melody',subtitle:'Mary Had a Little Lamb',duration:'8 min',mode:'flow',bpm:60,
+    goal:'Bring notes, holds, and timing together in a complete song.',
+    steps:['Listen to the melody before playing. Notice the longer notes at the ends of phrases.', 'Start at 60 BPM. Your right hand stays around middle C, reaching up to G.', 'Complete the melody with at least 80% correct holds. Then explore the songbook or try a faster tempo.'],
+    practice:songs[2]},
+  {id:'next-octave',title:'Explore the next octave',subtitle:'Optional · expand your range',duration:'5 min',mode:'wait',bpm:60,optional:true,
+    goal:'Recognize the same note names one octave higher.',
+    steps:['C5 is the next C above middle C. The pattern of white and black keys repeats.', 'This exercise uses two octave groups. The displayed piano expands to fit them.', 'Move your hand when needed. Keep relaxed, and use Wait mode to find each new note.'],
+    practice:{title:'Explore the next octave',notes:[60,64,67,72,76,79,76,72,67,64,60],beats:[1,1,1,1,1,2,1,1,1,1,2],bpm:60}}
+];

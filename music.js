@@ -79,3 +79,18 @@ export function createSession(song, mode = 'flow', bpm = song.bpm) {
     }
   };
 }
+
+// Show only complete octave groups that contain the piece's pitches.
+export function keyboardRange(notes) {
+  if(!notes.length || notes.some(n=>!Number.isInteger(n)||n<0||n>127))throw new Error('Expected MIDI notes between 0 and 127');
+  const start=Math.floor(Math.min(...notes)/12)*12;
+  const end=Math.min(127,Math.floor(Math.max(...notes)/12)*12+11);
+  const whites=[];
+  for(let note=start;note<=end;note++)if([0,2,4,5,7,9,11].includes(note%12))whites.push(note);
+  return {start,end,whites};
+}
+export function keyGeometry(note, whites) {
+  const i=whites.indexOf(note);
+  return {center:i<0?whites.filter(n=>n<note).length/whites.length:(i+.5)/whites.length,
+    width:(i<0?.58:1)/whites.length,black:i<0};
+}

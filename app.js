@@ -1,6 +1,13 @@
-import {songs, noteName, createSession} from './music.js';
+import {songs, noteName, createSession, keyboardRange, keyGeometry} from './music.js';
+import {lessons} from './lessons.js';
 const $=id=>document.getElementById(id);
-const white=[60,62,64,65,67,69,71,72],letters=['A','S','D','F','G','H','J','K'];
+let white=[],range;
+const letters=['A','S','D','F','G','H','J','K','L',';','Q','W','E','R','T','Y','U','I','O','P','[',']'];
+let activeLesson=null,lessonChoice=0,currentView='home',practiceReady=false;
+let progress={};
+try{const saved=JSON.parse(localStorage.getItem('pianist-lessons-v1')||'{}');if(saved&&typeof saved==='object'&&!Array.isArray(saved))progress=saved;}catch{}
+function currentPiece(){return activeLesson?lessons.find(l=>l.id===activeLesson).practice:songs[selected];}
+function saveProgress(){try{localStorage.setItem('pianist-lessons-v1',JSON.stringify(progress));}catch{}}
 let selected=0,mode='flow',session,running=false,last=0,midi,audio,demo=false;
 let bars=[],rollHeight=380,lastUI=0,renderedTime=0,retryFrom=0,retryAt=0,lastFeedback=null;
 const keys=new Map(),active=new Map(),voices=new Map(),demoNotes=new Set();
@@ -40,7 +47,11 @@ function render(){
   text('feedback',demo?'Listen to the melody. The highlighted keys show each note.':s.complete?'Song complete. Play the first note to repeat.':!running?`Play ${noteName(s.expected.note)} to ${s.index?'continue':'begin'}.`:mode==='wait'?'Hold to the tail. Release to move on.':'Follow the beat. Keep playing.');
   text('roll-status',demo?'MELODY PREVIEW':s.complete?'COMPLETE':!running?`PLAY ${noteName(s.expected.note)} TO BEGIN`:mode==='wait'&&!s.hit?'WAITING FOR YOUR KEY':'');
   $('complete-overlay').hidden=!s.complete||demo;
+  document.querySelector('#complete-overlay strong').textContent=activeLesson?'Exercise complete':'Song complete';
   text('complete-summary',`${s.correct} correct holds · ${s.missed} missed notes`);
+  $('next-lesson').hidden=!activeLesson;
+  const passed=s.correct/session.events.length>=.8;
+  text('lesson-result',activeLesson?(passed?'Lesson complete. You’re ready for the next step.':'Try again: aim for at least 80% correct holds.'):'');
   $('transport').hidden=!running||demo;
   text('listen',demo?'■ Stop melody':'♫ Hear melody');
   for(let i=0;i<bars.length;i++){
@@ -49,20 +60,22 @@ function render(){
   }
   if(s.feedback&&s.feedback!==lastFeedback&&!demo){
     lastFeedback=s.feedback;
-    const el=document.createElement('div'),index=white.indexOf(s.feedback.note);
+    const el=document.createElement('div'),position=keyGeometry(s.feedback.note,white);
     el.className=`note-feedback ${s.feedback.kind}`;el.textContent=s.feedback.label;
-    el.style.left=`${(index<0?white.filter(n=>n<s.feedback.note).length:index+.5)/8*100}%`;
+    el.style.left=`${Math.max(.06,Math.min(.94,position.center))*100}%`;
     $('key-feedback').replaceChildren(el);setTimeout(()=>el.remove(),900);
   }
 }
 function stopDemo(){demo=false;for(const note of demoNotes)stopSound(note);demoNotes.clear();}
 function reset(){
   running=false;releaseAll();stopDemo();retryAt=0;lastFeedback=null;$('key-feedback').replaceChildren();
-  session=createSession(songs[selected],mode,Number($('tempo').value));session.cue();renderedTime=session.state.time;
-  text('song-title',songs[selected].title);
+  session=createSession(currentPiece(),mode,Number($('tempo').value));session.cue();renderedTime=session.state.time;
+  buildKeyboard();
+  text('song-title',currentPiece().title);
   $('notes').replaceChildren(...session.events.map(e=>{
     const el=document.createElement('div');el.innerHTML=`<span>${noteName(e.note)}</span>`;el.className='falling-note';
-    el.style.left=`${(white.indexOf(e.note)+.24)/8*100}%`;el.style.width=`${.52/8*100}%`;el.style.height=`${e.duration*100}px`;return el;
+    const geometry=keyGeometry(e.note,white);
+    el.style.left=`${(geometry.center-geometry.width*.26)*100}%`;el.style.width=`${geometry.width*.52*100}%`;el.style.height=`${e.duration*100}px`;return el;
   }));
   [...$('songs').children].forEach((b,i)=>{b.classList.toggle('selected',i===selected);b.setAttribute('aria-pressed',i===selected);});
   bars=[...$('notes').children];rollHeight=$('notes').clientHeight;motion(performance.now());render();
@@ -77,8 +90,9 @@ function startSound(note){try{
 }catch{}}
 function stopSound(note){const v=voices.get(note);if(!v)return;v.gain.gain.cancelAndHoldAtTime(audio.currentTime);v.gain.gain.setTargetAtTime(.0001,audio.currentTime,.045);v.osc.stop(audio.currentTime+.3);v.osc.onended=()=>{v.osc.disconnect();v.gain.disconnect();v.filter.disconnect();};voices.delete(note);}
 function down(note,source,sound=false){
+  if(currentView!=='practice')return;
   sync();if(demo)reset();
-  if(session.state.complete&&note===songs[selected].notes[0])reset();
+  if(session.state.complete&&note===currentPiece().notes[0])reset();
   let sources=active.get(note);if(sources?.has(source))return;
   if(!sources){sources=new Set();active.set(note,sources);if(sound)startSound(note);
     if(!running&&note===session.state.expected?.note){session.cue();retryAt=0;renderedTime=session.state.time;running=true;last=performance.now();}
@@ -92,20 +106,28 @@ function setMode(value){mode=value;$('wait-mode').setAttribute('aria-pressed',mo
 function closeLibrary(){$('library').close();$('library-toggle').setAttribute('aria-expanded','false');}
 for(const [i,song]of songs.entries()){
   const b=document.createElement('button');b.className='song';b.innerHTML=`<span class="song-icon">${song.icon}</span><span><b>${song.title}</b><small>${song.subtitle}</small></span><span>→</span>`;
-  b.onclick=()=>{selected=i;reset();closeLibrary();};$('songs').append(b);
+  b.onclick=()=>{selected=i;activeLesson=null;practiceReady=true;setMode('flow');closeLibrary();navigate('practice');};$('songs').append(b);
 }
-for(let note=60;note<=72;note++){
-  const b=document.createElement('button'),isWhite=white.includes(note);b.className=`key ${isWhite?'white':'black'}`;b.dataset.note=note;b.setAttribute('aria-label',`Play ${noteName(note)}`);
-  b.innerHTML=`<span>${noteName(note)}${isWhite?`<small>${letters[white.indexOf(note)]}</small>`:''}</span><i class="hold-meter" aria-hidden="true"></i>`;
-  if(!isWhite)b.style.left=`${white.filter(n=>n<note).length/8*100}%`;
+function buildKeyboard(){
+  range=keyboardRange(currentPiece().notes);white=range.whites;
+  keys.clear();$('keyboard').replaceChildren();
+  $('piano-scene').style.setProperty('--key-step',`${100/white.length}%`);
+  text('keyboard-range',`Keyboard ${noteName(range.start)}–${noteName(range.end)} · ${white.length/7} octave ${white.length===7?'group':'groups'}`);
+  text('computer-hint',` Computer keys: ${letters.slice(0,white.length).join(' ')}`);
+for(let note=range.start;note<=range.end;note++){
+  const b=document.createElement('button'),isWhite=white.includes(note),geometry=keyGeometry(note,white);b.className=`key ${isWhite?'white':'black'}`;b.dataset.note=note;b.setAttribute('aria-label',`Play ${noteName(note)}`);
+  b.innerHTML=`<span>${noteName(note)}${isWhite?`<small>${letters[white.indexOf(note)]||''}</small>`:''}</span><i class="hold-meter" aria-hidden="true"></i>`;
+  b.style.width=`${geometry.width*100}%`;
+  if(!isWhite)b.style.left=`${geometry.center*100}%`;
   b.onpointerdown=e=>{e.preventDefault();b.focus();b.setPointerCapture(e.pointerId);down(note,`pointer-${e.pointerId}`,true);};
   b.onpointermove=e=>{if(!b.hasPointerCapture(e.pointerId))return;const source=`pointer-${e.pointerId}`,target=document.elementFromPoint(e.clientX,e.clientY)?.closest('.key'),next=target?Number(target.dataset.note):undefined;for(const [held,sources]of [...active])if(sources.has(source)&&held!==next)up(held,source);if(next!==undefined)down(next,source,true);};
   b.onpointerup=b.onpointercancel=b.onlostpointercapture=e=>{for(const [held]of [...active])up(held,`pointer-${e.pointerId}`);};
   b.onkeydown=e=>{if(['Enter',' '].includes(e.key)){e.preventDefault();down(note,'button',true);}};
   b.onkeyup=e=>{if(['Enter',' '].includes(e.key)){e.preventDefault();up(note,'button');}};keys.set(note,b);$('keyboard').append(b);
 }
-document.addEventListener('keydown',e=>{if(e.repeat||e.ctrlKey||e.metaKey||e.altKey||$('library').open||['INPUT','SELECT','TEXTAREA'].includes(e.target.tagName))return;const i=letters.indexOf(e.key.toUpperCase());if(i!==-1){e.preventDefault();down(white[i],'computer',true);}});
-document.addEventListener('keyup',e=>{const i=letters.indexOf(e.key.toUpperCase());if(i!==-1)up(white[i],'computer');});
+}
+document.addEventListener('keydown',e=>{if(currentView!=='practice'||e.repeat||e.ctrlKey||e.metaKey||e.altKey||$('library').open||['INPUT','SELECT','TEXTAREA'].includes(e.target.tagName))return;const i=letters.indexOf(e.key.toUpperCase());if(i!==-1&&white[i]!==undefined){e.preventDefault();down(white[i],'computer',true);}});
+document.addEventListener('keyup',e=>{const i=letters.indexOf(e.key.toUpperCase());if(i!==-1&&white[i]!==undefined)up(white[i],'computer');});
 function pause(){releaseAll();running=false;stopDemo();session.cue();retryAt=0;renderedTime=session.state.time;motion(performance.now());render();}
 window.addEventListener('blur',pause);document.addEventListener('visibilitychange',()=>{if(document.hidden)pause();});
 $('transport').onclick=pause;$('restart').onclick=reset;$('tempo').onchange=reset;$('guide').onchange=()=>{motion(performance.now());render();};
@@ -113,7 +135,7 @@ $('wait-mode').onclick=()=>setMode('wait');$('flow-mode').onclick=()=>setMode('f
 $('library-toggle').onclick=()=>{pause();$('library').showModal();$('library-toggle').setAttribute('aria-expanded','true');};
 $('library-close').onclick=closeLibrary;$('library').addEventListener('close',()=>{$('library-toggle').setAttribute('aria-expanded','false');});
 $('library').addEventListener('click',e=>{if(e.target===$('library')){const r=$('library').getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)closeLibrary();}});
-$('listen').onclick=()=>{if(demo){reset();return;}reset();demo=true;session=createSession(songs[selected],'flow',Number($('tempo').value));session.cue();running=true;last=performance.now();render();};
+$('listen').onclick=()=>{if(demo){reset();return;}reset();demo=true;session=createSession(currentPiece(),'flow',Number($('tempo').value));session.cue();running=true;last=performance.now();render();};
 function playDemo(){
   const time=session.state.time;
   for(const e of session.events){if(e.hitAt===null&&time>=e.start&&time<e.start+e.duration){session.down(e.note);startSound(e.note);demoNotes.add(e.note);}if(e.hitAt!==null&&e.releaseAt===null&&time>=e.start+e.duration){session.up(e.note);stopSound(e.note);demoNotes.delete(e.note);}}
@@ -124,8 +146,57 @@ function bindDevices(){const names=[];for(const input of midi.inputs.values()){
 }text('connection',names.length?`● ${names.join(', ')}`:'No MIDI piano found');text('connect',names.length?'✓ Piano connected':'Check MIDI devices');}
 $('connect').onclick=async()=>{if(!navigator.requestMIDIAccess){text('connection','MIDI needs Chrome/Edge and HTTPS or localhost');return;}try{midi??=await navigator.requestMIDIAccess({sysex:false});midi.onstatechange=bindDevices;bindDevices();}catch{text('connection','Allow MIDI in browser settings and retry');}};
 function frame(now){
-  if(running){sync(now);if(demo)playDemo();if(session.state.complete){running=false;if(demo){reset();}else releaseAll();render();}}
+  if(currentView!=='practice'){last=now;requestAnimationFrame(frame);return;}
+  if(running){sync(now);if(demo)playDemo();if(session.state.complete){running=false;if(demo){reset();}else{releaseAll();recordLesson();}render();}}
   motion(now);if(now-lastUI>=80){render();lastUI=now;}last=now;requestAnimationFrame(frame);
 }
 new ResizeObserver(()=>{rollHeight=$('notes').clientHeight;motion(performance.now());}).observe($('notes'));
-setMode('flow');requestAnimationFrame(frame);
+
+function recordLesson(){
+  if(!activeLesson)return;
+  const score=Math.round(session.state.correct/session.events.length*100);
+  if(score>=80){progress[activeLesson]={completed:true,best:Math.max(score,progress[activeLesson]?.best||0)};saveProgress();renderPlan();}
+}
+function renderPlan(){
+  const core=lessons.filter(l=>!l.optional),done=core.filter(l=>progress[l.id]?.completed).length;
+  text('course-count',`${done} / ${core.length}`);
+  text('begin-learning',done?'Continue learning →':'Begin learning →');
+  $('lesson-plan').replaceChildren(...lessons.map((lesson,i)=>{
+    const button=document.createElement('button');button.className=`lesson-card ${progress[lesson.id]?.completed?'completed':''}`;
+    button.innerHTML=`<span class="lesson-index">${progress[lesson.id]?.completed?'✓':String(i+1).padStart(2,'0')}</span><span class="lesson-card-copy"><b>${lesson.title}</b><small>${lesson.subtitle}</small></span><span class="lesson-meta">${lesson.optional?'OPTIONAL':lesson.duration}<small>${progress[lesson.id]?.completed?'Completed':lesson.mode==='wait'?'Wait practice':'Flow practice'}</small></span><span class="lesson-arrow">→</span>`;
+    button.onclick=()=>{lessonChoice=i;showLesson();navigate('lesson');};return button;
+  }));
+}
+function showLesson(){
+  const lesson=lessons[lessonChoice];text('lesson-number',`LESSON ${String(lessonChoice+1).padStart(2,'0')} / ${lesson.duration}`);
+  text('lesson-title',lesson.title);text('lesson-goal',lesson.goal);
+  $('lesson-steps').replaceChildren(...lesson.steps.map(step=>{const li=document.createElement('li');li.textContent=step;return li;}));
+  text('lesson-settings',`${lesson.mode==='wait'?'Wait':'Flow'} mode · ${lesson.bpm} BPM · Complete at least 80% of holds`);
+}
+function navigate(view){if(location.hash===`#${view}`)showView(view);else location.hash=view;}
+function showView(view){
+  if(!['home','lessons','lesson','practice'].includes(view))view='home';
+  if(view==='practice'&&!practiceReady){navigate('lessons');return;}
+  if(currentView==='practice'&&view!=='practice')pause();
+  currentView=view;document.body.dataset.view=view;
+  for(const name of ['home','lessons','lesson','practice'])$(name+'-page').hidden=name!==view;
+  document.querySelectorAll('header nav a').forEach(a=>{if(a.hash===`#${view}`)a.setAttribute('aria-current','page');else a.removeAttribute('aria-current');});
+  if(view==='lessons')renderPlan();
+  if(view==='lesson')showLesson();
+  if(view==='practice'){
+    text('practice-context',activeLesson?'LESSON PRACTICE':'SONG PRACTICE');
+    text('practice-goal',activeLesson?lessons.find(l=>l.id===activeLesson).goal:'');
+    $('practice-back').textContent=activeLesson?'← Lesson plan':'← Lessons';
+    rollHeight=$('notes').clientHeight;motion(performance.now());render();
+  }else $(view==='home'?'home-title':view==='lesson'?'lesson-title':'lessons-title').focus({preventScroll:true});
+  window.scrollTo(0,0);
+}
+$('lesson-back').onclick=()=>navigate('lessons');
+$('practice-back').onclick=()=>navigate('lessons');
+$('next-lesson').onclick=()=>navigate('lessons');
+$('lesson-start').onclick=()=>{
+  const lesson=lessons[lessonChoice];activeLesson=lesson.id;practiceReady=true;$('tempo').value=lesson.bpm;setMode(lesson.mode);navigate('practice');
+};
+$('course-songs').onclick=()=>{$('library').showModal();$('library-toggle').setAttribute('aria-expanded','true');};
+window.addEventListener('hashchange',()=>showView(location.hash.slice(1)||'home'));
+renderPlan();showLesson();setMode('flow');showView(location.hash.slice(1)||'home');requestAnimationFrame(frame);
